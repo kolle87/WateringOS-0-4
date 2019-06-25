@@ -58,19 +58,26 @@ using Windows.Storage;
     2019/06/05
         Changed Error Message names to be better sorted in SQL PowerBI
         Changed to NOT in debug
+    2019/06/25
+        Added local logging to *.txt
+        Added Rain and Ground factors on watering volume
 */
 
 namespace WateringOS
 {
     static class GlobalAttributes
     {
+        public static string LocalLogPath = DateTime.Now.Year.ToString("yyyy_MM_dd__HH_mm_ss") + " - Log.txt";
+
         public static bool   SqlBusy = false;
         public static string vSqlDat_Prefix  = "INSERT INTO Signals(DateTime, Flow1, Flow2, Flow3, Flow4, Flow5, Rain, Ground, TankLevel, Pressure, TempCPU, TempAmb, TempExp, Pump, Valve1, Valve2, Valve3, Valve4, Valve5, TEST) VALUES ";
         public static string vSqlDat_Data    = "";
         public static string vSqlLog_Prefix  = "INSERT INTO Log(TimeStamp, Instance, Type, Name, Details, TEST) VALUES ";
         public static string vSqlLog_Data    = "";
-        public static byte cnt_TempAir = 255;
-        public static byte cnt_TempCPU = 255;
+
+        public static byte cnt_TempAir = 60;
+        public static byte cnt_TempCPU = 60;
+        public static byte cnt_TankLvl = 60;
 
         public static byte v_Flow1    = 0;
         public static byte v_Flow2    = 0;
@@ -313,7 +320,6 @@ namespace WateringOS
                     var vNeg = 1;
                     if ((vASa[0] & 128) == 1) { vNeg = -1; }
                     int tTcpu = (vASa[0] << 8) + vASa[1];
-
                     return Convert.ToInt16(((tTcpu >> 7) & 255) * vNeg);
                 }
                 catch (Exception e)
@@ -618,8 +624,27 @@ namespace WateringOS
             vMsg = vMsg.Replace("\n",   " ");
             vMsg = vMsg.Replace("\r",   " ");
             Debug.WriteLine(DateTime.Now.ToString("HH:mm:ss.fff - ") + vInstance + " " + vMsg);
-            GlobalAttributes.vSqlLog_Data += String.Format("('{0}', '{1}', '{2}', '{3}', '{4}', '{5}'),", DateTime.Now.ToString("o", CultureInfo.CurrentCulture), vInstance, vType, vMsg, vDetail, AppInDebug);
 
+            if (File.Exists(GlobalAttributes.LocalLogPath))
+            {
+                using (StreamWriter LogFile = File.AppendText(GlobalAttributes.LocalLogPath))
+                { LogFile.WriteLine(DateTime.Now.ToString("o", CultureInfo.CurrentCulture) + ";" + vType + ";" +vInstance + ";" + vMsg); }
+            }
+            else
+            {
+                GlobalAttributes.LocalLogPath = DateTime.Now.Year.ToString("yyyy_MM_dd__HH_mm_ss") + " - Log.txt";
+                using (StreamWriter LogFile = File.CreateText(GlobalAttributes.LocalLogPath))
+                {
+                    Debug.WriteLine(DateTime.Now.ToString("HH:mm:ss.fff - ") + "[APP] File not found - creating new local log file (" + GlobalAttributes.LocalLogPath + ")");
+                    LogFile.WriteLine("WateringOS_0_4");
+                    LogFile.WriteLine("(C)2019 by Michael Kollmeyer");
+                    LogFile.WriteLine("");
+                    LogFile.WriteLine("Date;Type;Function;Name;Detail");
+                    LogFile.WriteLine(DateTime.Now.ToString("o", CultureInfo.CurrentCulture) + ";" + vType + ";" + vInstance + ";" + vMsg);
+                }
+            }
+
+            GlobalAttributes.vSqlLog_Data += String.Format("('{0}', '{1}', '{2}', '{3}', '{4}', '{5}'),", DateTime.Now.ToString("o", CultureInfo.CurrentCulture), vInstance, vType, vMsg, vDetail, AppInDebug);
         }
         private void LogTimer_Tick(Object stateInfo)
         {
@@ -1087,9 +1112,67 @@ namespace WateringOS
             byte wt4 = 0;
             byte wt5 = 0;
 
+            byte tmp_GAF1 = cGAF1;
+            byte tmp_GAF2 = cGAF2;
+            byte tmp_GAF3 = cGAF3;
+            byte tmp_GAF4 = cGAF4;
+            byte tmp_GAF5 = cGAF5;
+
+            byte tmp_RAF1 = cRAF1;
+            byte tmp_RAF2 = cRAF2;
+            byte tmp_RAF3 = cRAF3;
+            byte tmp_RAF4 = cRAF4;
+            byte tmp_RAF5 = cRAF5;
+
+            if (GlobalAttributes.v_Rain > 200)     // Rain
+            {
+                tmp_RAF1 = cRAF1;
+                tmp_RAF2 = cRAF2;
+                tmp_RAF3 = cRAF3;
+                tmp_RAF4 = cRAF4;
+                tmp_RAF5 = cRAF5;
+            }
+            else
+            {
+                tmp_RAF1 = 100;
+                tmp_RAF2 = 100;
+                tmp_RAF3 = 100;
+                tmp_RAF4 = 100;
+                tmp_RAF5 = 100;
+            }
+
+            if (GlobalAttributes.v_Ground > 200)   // Ground damp
+            {
+                tmp_GAF1 = cGAF1;
+                tmp_GAF2 = cGAF2;
+                tmp_GAF3 = cGAF3;
+                tmp_GAF4 = cGAF4;
+                tmp_GAF5 = cGAF5;
+            }  
+            else
+            {
+                tmp_GAF1 = 100;
+                tmp_GAF2 = 100;
+                tmp_GAF3 = 100;
+                tmp_GAF4 = 100;
+                tmp_GAF5 = 100;
+            }
+
+            int tmp_Vol1 = cVOL1 * (tmp_RAF1 / 100) * (tmp_GAF1 / 100);
+            int tmp_Vol2 = cVOL2 * (tmp_RAF2 / 100) * (tmp_GAF2 / 100);
+            int tmp_Vol3 = cVOL3 * (tmp_RAF3 / 100) * (tmp_GAF3 / 100);
+            int tmp_Vol4 = cVOL4 * (tmp_RAF4 / 100) * (tmp_GAF4 / 100);
+            int tmp_Vol5 = cVOL5 * (tmp_RAF5 / 100) * (tmp_GAF5 / 100);
+
+            if (tmp_Vol1 > 255) { tmp_Vol1 = 255; }
+            if (tmp_Vol2 > 255) { tmp_Vol2 = 255; }
+            if (tmp_Vol3 > 255) { tmp_Vol3 = 255; }
+            if (tmp_Vol4 > 255) { tmp_Vol4 = 255; }
+            if (tmp_Vol5 > 255) { tmp_Vol5 = 255; }
+
+
             if (Out1_active)
             {
-
                 this.DebugLog("[WAT]", "Status", "Watering Plant 1", "The routine activated watering of plant #1.");
                 fGpioServer.SetPinState(2, true);                                                       // Open Valve #1
                 var t_wait = Task.Run(async delegate { await Task.Delay(2000); });
@@ -1097,7 +1180,7 @@ namespace WateringOS
                 var t_Water1 = Task.Run(async delegate
                 {
                     fGpioServer.SetPinState(1, true);                                                   // Start Pump
-                    while (fTwiServer.TWI_ATmega_ReadFlow(0) < cVOL1)
+                    while (fTwiServer.TWI_ATmega_ReadFlow(0) < tmp_Vol1)
                     {
                         await Task.Delay(1000);
                         wt1++;
@@ -1124,7 +1207,7 @@ namespace WateringOS
                 var t_Water2 = Task.Run(async delegate
                 {
                     fGpioServer.SetPinState(1, true);                                                   // Start Pump
-                    while (fTwiServer.TWI_ATmega_ReadFlow(1) < cVOL2)
+                    while (fTwiServer.TWI_ATmega_ReadFlow(1) < tmp_Vol2)
                     {
                         await Task.Delay(1000);
                         wt2++;
@@ -1154,7 +1237,7 @@ namespace WateringOS
                 var t_Water3 = Task.Run(async delegate
                 {
                     fGpioServer.SetPinState(1, true);                                                   // Start Pump
-                    while (fTwiServer.TWI_ATmega_ReadFlow(2) < cVOL3)
+                    while (fTwiServer.TWI_ATmega_ReadFlow(2) < tmp_Vol3)
                     {
                         await Task.Delay(1000);
                         wt3++;
@@ -1184,7 +1267,7 @@ namespace WateringOS
                 var t_Water4 = Task.Run(async delegate
                 {
                     fGpioServer.SetPinState(1, true);                                                   // Start Pump
-                    while (fTwiServer.TWI_ATmega_ReadFlow(3) < cVOL4)
+                    while (fTwiServer.TWI_ATmega_ReadFlow(3) < tmp_Vol4)
                     {
                         await Task.Delay(1000);
                         wt4++;
@@ -1214,7 +1297,7 @@ namespace WateringOS
                 var t_Water5 = Task.Run(async delegate
                 {
                     fGpioServer.SetPinState(1, true);                                                   // Start Pump
-                    while (fTwiServer.TWI_ATmega_ReadFlow(4) < cVOL5)
+                    while (fTwiServer.TWI_ATmega_ReadFlow(4) < tmp_Vol5)
                     {
                         await Task.Delay(1000);
                         wt5++;
@@ -1239,9 +1322,20 @@ namespace WateringOS
             fTwiServer.TWI_ATmega_ResetCounter();
             this.DebugLog("[APP]", "Information", "Counters reset", "The flow counters were reset after watering.");
         }
-public void Run(IBackgroundTaskInstance taskInstance)
+        public void Run(IBackgroundTaskInstance taskInstance)
         {
             Debug.WriteLine(DateTime.Now.ToString("HH:mm:ss.fff - ") + "[APP] The application has started");
+
+            // Create new file at system startup
+            GlobalAttributes.LocalLogPath = DateTime.Now.Year.ToString("yyyy_MM_dd__HH_mm_ss") + " - Log.txt";
+            using (StreamWriter LogFile = File.CreateText(GlobalAttributes.LocalLogPath))
+            {
+                Debug.WriteLine(DateTime.Now.ToString("HH:mm:ss.fff - ") + "[APP] Creating Local Log file (" + GlobalAttributes.LocalLogPath + ")");
+                LogFile.WriteLine("WateringOS_0_4");
+                LogFile.WriteLine("(C)2019 by Michael Kollmeyer");
+                LogFile.WriteLine("");
+                LogFile.WriteLine("TimeStamp;Instance;Type;Name;Detail");
+            }
 
             fDef = taskInstance.GetDeferral();          // get deferral to keep running
 
